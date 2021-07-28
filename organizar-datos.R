@@ -1,6 +1,7 @@
 ##R --vanilla
 require(chron)
 require(dplyr)
+require(readr)
 
 (load(file="MVcamarasBurroNegro.rda"))
 
@@ -22,17 +23,6 @@ camaras %>% group_by(URA,PMY) %>% summarise(n_camaras=n_distinct(cdg),total_came
 #####
 ## Chequear número de eventos anotados e identificaciones completadas
 
-fts %>% mutate(grupo=substr(camara,9,11)) %>% group_by(grupo,periodo) %>% summarise(n_fotos=n_distinct(filename),n_eventos=n_distinct(evento)) -> f1
-
-fts %>% filter(Anotado) %>% mutate(grupo=substr(camara,9,11)) %>% group_by(grupo,periodo) %>% summarise(eventos_anotados=n_distinct(evento))-> f2
-
-fts %>% filter(Identificado) %>% mutate(grupo=substr(camara,9,11)) %>% group_by(grupo,periodo) %>% summarise(eventos_identificados=n_distinct(evento))-> f3
-
-f1 %>% left_join(f2)%>% left_join(f3) -> tabla_resumen
-
-tabla_resumen %>% print.AsIs
-
-
 fts %>% group_by(camara) %>% summarise(n_fotos=n_distinct(filename),n_eventos=n_distinct(evento)) -> f1
 
 fts %>% filter(Anotado) %>% group_by(camara) %>% summarise(eventos_anotados=n_distinct(evento))-> f2
@@ -43,7 +33,49 @@ f1 %>% left_join(f2)%>% left_join(f3) -> tabla_resumen
 
 tabla_resumen %>% print.AsIs
 
+####
 
+## Crear tabla de cámaras 
+
+camaras %>% transmute(datasetName="LEE-COL-RD",
+                      locationId=cdg,
+                      decimalLongitude=longitud,
+                      decimalLatitude=latitud,
+                      geodeticDatum="WGS84",
+                      coordinateUncertaintyInMeters=EPE,
+                      verbatimLocality="Parque Recreativo Burro Negro, Reserva Nacional Hidráulica de Pueblo Viejo, Municipio Lagunillas, estado Zulia",
+                      countryCode="VE",
+                      country="Venezuela",
+                      dateBegin=fecha_ini,
+                      dateEnd=fecha_fin
+                      ) -> cameraList
+
+write_csv(cameraList,path="data/camera-locations.csv")
+
+## Crear tabla de eventos por cámara
+
+notas %>% transmute(datasetName="LEE-COL-RD",
+                    locationId=camara,
+                    eventId=sprintf("LEE-COL-RD:%s",evento),
+                    annotatedBy=case_when(
+                        anotador == "LM" ~ "Morán, Lisandro",
+                        anotador == "AYSM" ~ "Sánchez-Mercado, Ada Yelitza",
+                        anotador == "JRFP" ~ "Ferrer-Paris, José R.",
+                        TRUE ~ "Personal Laboratorio Ecología Espacial"
+                    ),
+                    eventType=tipo
+                      ) -> eL
+
+fts %>% group_by(camara,evento) %>% summarise(fchini=min(f1),fchfin=max(f1)) %>%
+    mutate(
+            eventId=sprintf("LEE-COL-RD:%s",evento),
+            eventBegin=format(fchini,'%Y-%I-%dT%H:%M:%S-0400'),
+            eventEnd=format(fchfin,'%Y-%I-%dT%H:%M:%S-0400')
+            ) %>% left_join(eL,by="eventId") %>% ungroup %>% select(datasetName,eventId,locationId,eventBegin,eventEnd,eventType,annotatedBy) -> eventList
+
+write_csv(cameraList,path="data/all-event-annotations.csv")
+
+## Crear tabla de identificaciones con columnas siguiendo el estándard de Darwin Core https://dwc.tdwg.org/
 
 camaras %>% transmute(camara=cdg,
                       basisOfRecord="MachineObservation",
@@ -56,7 +88,7 @@ camaras %>% transmute(camara=cdg,
                       decimalLatitude=latitud,
                       geodeticDatum="WGS84",
                       coordinateUncertaintyInMeters=EPE,
-                      verbatimLocality=sprintf("%s, Municipio Lagunillas, estado Zulia",Ubicacion),
+                      verbatimLocality="Parque Recreativo Burro Negro, Reserva Nacional Hidráulica de Pueblo Viejo, Municipio Lagunillas, estado Zulia",
                       countryCode="VE",
                       country="Venezuela") -> f1
 
@@ -68,12 +100,20 @@ ids %>% transmute(evento,
                   genus=Genus,
                   nameAccordingTo="",
                   vernacularName=NombreLinares,
-                  identifiedBy=identificador,
-                  identificationRemarks=sprintf("%s , basado en %s , certeza %s%%",criterio, fuente, certeza)) -> f2
+                  identifiedBy=case_when(
+                        identificador == "LM" ~ "Morán, Lisandro",
+                        identificador == "AYSM" ~ "Sánchez-Mercado, Ada Yelitza",
+                        identificador == "JRFP" ~ "Ferrer-Paris, José R.",
+                        TRUE ~ "Personal Laboratorio Ecología Espacial"
+                    ),
+                  identificationRemarks=sprintf("%s , basado en %s , certeza %s%%", criterio, fuente, certeza)) -> f2
                   
             
-fts %>% transmute(camara,evento,
+fts %>% filter(Identificado %in% TRUE) %>% group_by(camara,evento) %>% summarise(fch=min(f1)) %>%
+    mutate(
             occurrenceID=sprintf("LEE-COL-RD:%s",evento),
-            occurrenceStatus=if_else(Identificado %in% TRUE,"present","absent"),
-            eventDate=format(fts$f1,'%Y-%I-%dT%H:%M:%S-0400')
-            ) %>% left_join(f1,by="camara") %>% left_join(f2,by="evento") -> dC
+            occurrenceStatus="present",
+            eventDate=format(fch,'%Y-%I-%dT%H:%M:%S-0400')
+            ) %>% left_join(f1,by="camara") %>% left_join(f2,by="evento") %>% ungroup %>% select(occurrenceID:identificationRemarks) -> dC
+
+write_csv(cameraList,path="data/events-with-ids.csv")
