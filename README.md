@@ -1,9 +1,9 @@
 ---
 title: 'Registro fotográfico de mamíferos en el municipio Lagunillas (Zulia, Venezuela)'
 author: 
-	- JR Ferrer-Paris
-	- Ada Sánchez-Mercado
-	- Lisandro Morán
+  - JR Ferrer-Paris
+  - Ada Sánchez-Mercado
+  - Lisandro Morán
 date: "08/08/2021"
 ---
 
